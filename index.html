@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=360, height=520" />
+  <title>Simulated trading</title>
+  <style>
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      padding: 0;
+      width: 360px;
+      min-height: 1px;
+      background: transparent;
+      color: #e6e6e6;
+      font-family: "Liberation Sans", "DejaVu Sans", Arial, sans-serif;
+      font-size: 13px;
+      font-variant-numeric: tabular-nums;
+    }
+    .panel {
+      margin: 8px;
+      padding: 12px 14px 10px;
+      background: rgba(10, 12, 16, 0.72);
+      border: 1px solid rgba(180, 180, 180, 0.22);
+      border-radius: 8px;
+      color: #e6e6e6;
+    }
+    .badge {
+      display: inline-block;
+      font-size: 10px;
+      letter-spacing: 0.06em;
+      color: #9a9a9a;
+      border: 1px solid #5c5c5c;
+      border-radius: 3px;
+      padding: 2px 6px;
+      margin-bottom: 10px;
+      text-transform: none;
+    }
+    .label {
+      font-size: 10px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: #9a9a9a;
+    }
+    .equity {
+      font-size: 22px;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      margin: 2px 0 10px;
+      color: #f2f2f2;
+    }
+    .row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px 12px;
+      margin-bottom: 10px;
+    }
+    .metric .value {
+      font-size: 15px;
+      font-weight: 650;
+      color: #ececec;
+      margin-top: 1px;
+    }
+    .metric .sub {
+      font-size: 11px;
+      color: #9a9a9a;
+      margin-top: 1px;
+    }
+    h2 {
+      margin: 8px 0 6px;
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: #9a9a9a;
+      border-top: 1px solid rgba(180, 180, 180, 0.16);
+      padding-top: 8px;
+    }
+    .empty { color: #8a8a8a; font-size: 12px; }
+    .pos, .trade {
+      padding: 5px 0;
+      border-bottom: 1px solid rgba(180, 180, 180, 0.1);
+    }
+    .pos:last-child, .trade:last-child { border-bottom: 0; }
+    .head {
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+      font-weight: 650;
+      color: #f0f0f0;
+    }
+    .side { color: #c8c8c8; font-weight: 600; }
+    .detail {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 2px 10px;
+      margin-top: 3px;
+      color: #b0b0b0;
+      font-size: 11px;
+    }
+    .updated {
+      margin-top: 8px;
+      font-size: 10px;
+      color: #8a8a8a;
+    }
+    .stale { color: #b0b0b0; }
+  </style>
+</head>
+<body>
+  <div class="panel">
+    <div class="badge">Simulated trading</div>
+    <div class="label">Equity</div>
+    <div class="equity" id="equity">—</div>
+    <div class="row">
+      <div class="metric">
+        <div class="label">PnL</div>
+        <div class="value" id="pnl">—</div>
+        <div class="sub" id="pnl-pct"></div>
+      </div>
+      <div class="metric">
+        <div class="label">Win rate</div>
+        <div class="value" id="winrate">—</div>
+        <div class="sub" id="trades">0 trades</div>
+      </div>
+    </div>
+    <h2>Open</h2>
+    <div id="open"><div class="empty">None</div></div>
+    <h2>Recent</h2>
+    <div id="recent"><div class="empty">None</div></div>
+    <div class="updated" id="updated">Waiting for stats…</div>
+  </div>
+  <script>
+    const $ = (id) => document.getElementById(id);
+    function esc(s) {
+      return String(s ?? "").replace(/[&<>"']/g, (c) => ({
+        "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
+      }[c]));
+    }
+    function money(n) {
+      if (n == null || n === "" || Number.isNaN(Number(n))) return "—";
+      const x = Number(n);
+      const sign = x < 0 ? "\u2212" : "";
+      return sign + "$" + Math.abs(x).toLocaleString("en-US", {
+        minimumFractionDigits: 2, maximumFractionDigits: 2
+      });
+    }
+    function pct(n) {
+      if (n == null || Number.isNaN(Number(n))) return "—";
+      const x = Number(n);
+      const sign = x > 0 ? "+" : (x < 0 ? "\u2212" : "");
+      return sign + Math.abs(x).toFixed(2) + "%";
+    }
+    function px(n) {
+      if (n == null || n === "" || Number.isNaN(Number(n))) return "—";
+      const x = Number(n);
+      const abs = Math.abs(x);
+      let d = 2;
+      if (abs < 0.0001) d = 8;
+      else if (abs < 0.01) d = 7;
+      else if (abs < 1) d = 6;
+      else if (abs < 100) d = 4;
+      return x.toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: d });
+    }
+    function sym(s) {
+      return String(s || "").replace(/^PF_/, "").replace(/USD$/, "USD");
+    }
+    function side(s) {
+      return String(s || "").toUpperCase();
+    }
+    function render(data) {
+      $("equity").textContent = money(data.equity);
+      $("pnl").textContent = money(data.pnl_usd);
+      $("pnl-pct").textContent = pct(data.pnl_pct);
+      if (data.trade_count) {
+        $("winrate").textContent = (data.win_rate == null ? "—" : Number(data.win_rate).toFixed(0) + "%");
+      } else {
+        $("winrate").textContent = "—";
+      }
+      const n = Number(data.trade_count || 0);
+      $("trades").textContent = n + (n === 1 ? " trade" : " trades");
+
+      const open = Array.isArray(data.open) ? data.open : [];
+      if (!open.length) {
+        $("open").innerHTML = '<div class="empty">None</div>';
+      } else {
+        $("open").innerHTML = open.map((p) =>
+          '<div class="pos"><div class="head"><span>' + esc(sym(p.symbol)) +
+          '</span><span class="side">' + esc(side(p.side)) +
+          '</span></div><div class="detail"><span>Entry ' + esc(px(p.entry)) +
+          '</span><span>Stop ' + esc(px(p.stop)) +
+          '</span><span>Target ' + esc(px(p.target)) +
+          '</span></div></div>'
+        ).join("");
+      }
+
+      const recent = Array.isArray(data.recent_closed) ? data.recent_closed : [];
+      if (!recent.length) {
+        $("recent").innerHTML = '<div class="empty">None</div>';
+      } else {
+        $("recent").innerHTML = recent.map((t) => {
+          const r = (t.net_r == null || Number.isNaN(Number(t.net_r))) ? "" :
+            ((Number(t.net_r) > 0 ? "+" : (Number(t.net_r) < 0 ? "\u2212" : "")) +
+              Math.abs(Number(t.net_r)).toFixed(2) + "R");
+          return '<div class="trade"><div class="head"><span>' + esc(sym(t.symbol)) +
+            ' <span class="side">' + esc(side(t.side)) +
+            '</span></span><span>' + esc(money(t.pnl_usd)) +
+            '</span></div><div class="detail"><span>' + esc(r) +
+            '</span><span>' + esc(t.reason || "") +
+            '</span></div></div>';
+        }).join("");
+      }
+      const ts = data.updated_at || "—";
+      $("updated").textContent = "Last updated " + ts;
+      $("updated").className = "updated";
+    }
+    async function load() {
+      try {
+        const res = await fetch("stats.json?t=" + Date.now(), { cache: "no-store" });
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        render(await res.json());
+      } catch (err) {
+        $("updated").textContent = "Last updated unavailable";
+        $("updated").className = "updated stale";
+      }
+    }
+    load();
+    setInterval(load, 30000);
+  </script>
+</body>
+</html>

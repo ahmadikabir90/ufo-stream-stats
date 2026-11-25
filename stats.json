@@ -1,0 +1,15 @@
+{
+  "strategy": "A",
+  "equity": 10000.0,
+  "starting_equity": 10000.0,
+  "pnl_usd": 0.0,
+  "pnl_pct": 0.0,
+  "win_rate": null,
+  "wins": 0,
+  "losses": 0,
+  "trade_count": 0,
+  "open": [],
+  "recent_closed": [],
+  "updated_at": "2026-11-25 20:31:52 CET (Europe/Berlin)",
+  "updated_ms": 1795635112063
+}
